@@ -1,0 +1,134 @@
+<pre class="metadata">
+Shortname: gamepad-haptics-pcm
+Title: Gamepad Haptics PCM Extension
+Group: webapps
+Status: ED
+ED: https://w3c.github.io/gamepad-haptics/
+Repository: w3c/gamepad-haptics
+Level: 1
+
+Editor: Rik Cabanier 106988, Meta https://facebook.com, cabanier@fb.com
+
+Abstract: This specification extends the Gamepad API's {{GamepadHapticActuator}} interface with the ability to play PCM audio data as haptic feedback.
+
+Markup Shorthands: markdown yes
+Markup Shorthands: dfn yes
+Markup Shorthands: idl yes
+Markup Shorthands: css no
+Assume Explicit For: yes
+
+Warning: custom
+Custom Warning Title: Unstable API
+Custom Warning Text:
+  <b>The API represented in this document is under development and may change at any time.</b>
+</pre>
+
+<pre class="anchors">
+spec: gamepad; urlPrefix: https://w3c.github.io/gamepad/
+    type: interface
+        text: GamepadHapticActuator; url: #dom-gamepadhapticactuator
+    type: dfn
+        text: gamepad task source; url: #dfn-gamepad-task-source
+    type: attribute; for: GamepadHapticActuator
+        text: [[playingEffectPromise]]; url: #dfn-playingeffectpromise
+    type: enum-value
+        text: preempted; url: #dom-gamepadhapticsresult-preempted
+
+spec: html; urlPrefix: https://html.spec.whatwg.org/multipage/nav-history-apis.html
+    type: dfn
+        text: associated Document; url: #concept-document-window
+
+spec: webaudio; urlPrefix: https://webaudio.github.io/web-audio-api/
+    type: interface
+        text: AudioBuffer; url: #audiobuffer
+</pre>
+
+<pre class="link-defaults">
+spec: gamepad;
+    type: interface;
+        text: GamepadHapticActuator
+</pre>
+
+# Introduction # {#intro}
+
+<section class="non-normative">
+
+Some gamepad devices include haptic actuators capable of rendering audio waveforms directly to the user as haptic feedback. This specification extends the {{GamepadHapticActuator}} interface defined in the [Gamepad](https://w3c.github.io/gamepad/) specification with the {{GamepadHapticActuator/playPCM()}} method, which allows authors to play PCM audio data from an {{AudioBuffer}} through the gamepad's haptic actuators.
+
+This enables richer haptic experiences than predefined effects, as developers can design custom waveforms using the Web Audio API and play them through the gamepad's haptic hardware.
+
+</section>
+
+## Terminology ## {#terminology}
+
+This specification uses the terms {{GamepadHapticActuator}} and [=gamepad task source=] as defined in the [Gamepad](https://w3c.github.io/gamepad/) specification.
+
+It uses the term {{AudioBuffer}} as defined in the [Web Audio API](https://webaudio.github.io/web-audio-api/) specification.
+
+# GamepadHapticActuator Extension # {#hapticactuator-extension}
+
+This specification extends the {{GamepadHapticActuator}} interface with a method for playing PCM audio data as haptic feedback.
+
+<script type=idl>
+partial interface GamepadHapticActuator {
+  Promise<boolean> playPCM(AudioBuffer sound);
+};
+</script>
+
+## playPCM ## {#hapticactuator-playpcm}
+
+The <dfn method for="GamepadHapticActuator">playPCM(|sound|)</dfn> method plays PCM audio data from an {{AudioBuffer}} through the gamepad's haptic actuator.
+
+When invoked, the user agent MUST run the following steps:
+
+ 1. Let |document| be the [=current settings object=]'s [=relevant global object=]'s [=associated Document=].
+ 1. If |document| is `null` or |document| is not [=Document/fully active=] or |document|'s [=Document/visibility state=] is `"hidden"`, return [=a promise rejected with=] an "{{InvalidStateError}}" {{DOMException}}.
+ 1. If |sound|'s {{AudioBuffer/length}} is 0, return [=a promise resolved with=] `true`.
+ 1. If [=this=].{{GamepadHapticActuator/[[playingEffectPromise]]}} is not `null`:
+    1. Let |effectPromise| be [=this=].{{GamepadHapticActuator/[[playingEffectPromise]]}}.
+    1. Set [=this=].{{GamepadHapticActuator/[[playingEffectPromise]]}} to `null`.
+    1. [=Queue a global task=] on the [=gamepad task source=] with the [=relevant global object=] of [=this=] to [=resolve=] |effectPromise| with "{{preempted}}".
+ 1. Let {{GamepadHapticActuator/[[playingEffectPromise]]}} be [=a new promise=].
+ 1. Run the following steps [=in parallel=]:
+    1. Send the PCM data from |sound| to the haptic actuator for playback. If the actuator does not support PCM playback, [=queue a global task=] on the [=gamepad task source=] with the [=relevant global object=] of [=this=] to [=resolve=] {{GamepadHapticActuator/[[playingEffectPromise]]}} with `false`, and abort these steps.
+    1. When the playback completes successfully, [=queue a global task=] on the [=gamepad task source=] with the [=relevant global object=] of [=this=] to [=resolve=] {{GamepadHapticActuator/[[playingEffectPromise]]}} with `true`.
+    1. If an error occurs during playback, [=queue a global task=] on the [=gamepad task source=] with the [=relevant global object=] of [=this=] to [=resolve=] {{GamepadHapticActuator/[[playingEffectPromise]]}} with `false`.
+ 1. Return {{GamepadHapticActuator/[[playingEffectPromise]]}}.
+
+NOTE: The {{AudioBuffer/sampleRate}} of the {{AudioBuffer}} may not match the native sample rate of the haptic actuator. In this case, the user agent SHOULD resample the audio data to match the actuator's native sample rate.
+
+<div class="example">
+Playing a custom haptic waveform from an AudioBuffer:
+
+  <pre highlight="js">
+    const audioCtx = new AudioContext();
+    const sampleRate = audioCtx.sampleRate;
+    const buffer = audioCtx.createBuffer(1, sampleRate * 0.5, sampleRate);
+
+    // Fill with a 150Hz sine wave for 0.5 seconds
+    const channelData = buffer.getChannelData(0);
+    for (let i = 0; i < buffer.length; i++) {
+      channelData[i] = Math.sin(2 * Math.PI * 150 * i / sampleRate);
+    }
+
+    const gamepad = navigator.getGamepads()[0];
+    const success = await gamepad.vibrationActuator.playPCM(buffer);
+    if (success) {
+      console.log("Haptic waveform played successfully");
+    } else {
+      console.log("PCM haptic playback failed or is not supported");
+    }
+  </pre>
+</div>
+
+# Security and Privacy Considerations # {#security}
+
+This specification does not introduce any new security or privacy considerations beyond those described in the [Gamepad](https://w3c.github.io/gamepad/) and [Web Audio API](https://webaudio.github.io/web-audio-api/) specifications.
+
+The {{GamepadHapticActuator/playPCM()}} method requires the same user activation and visibility conditions as the existing {{GamepadHapticActuator/playEffect()}} method to prevent abuse of haptic hardware by background pages.
+
+# Conformance # {#conformance}
+
+As well as sections marked as non-normative, all authoring guidelines, diagrams, examples, and notes in this specification are non-normative. Everything else in this specification is normative.
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [BCP 14](https://datatracker.ietf.org/doc/html/bcp14) when, and only when, they appear in all capitals, as shown here.
