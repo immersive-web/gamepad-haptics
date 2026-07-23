@@ -1,1 +1,1 @@
-# Gamepad Haptics
+# Gamepad Haptics PCM Extension
